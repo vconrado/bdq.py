@@ -10,8 +10,7 @@ from osgeo import ogr
 ######################################################################################################################
 # simple_geo Features
 
-# fazer cache
-s = sgeo(wfs="http://localhost:8080/geoserver-esensing/", wtss="http://localhost:7644", debug=False)
+s = sgeo(wfs="http://localhost:8080/geoserver-esensing", wtss="http://localhost:7644", debug=True, cache=True)
 
 print("Features")
 
@@ -37,14 +36,15 @@ fc2, fc2_metadata = s.feature_collection("esensing:municipios_bra",
                                          max_features=2,
                                          attributes=['nome', 'geom', 'estado'],
                                          sort_by={"nome": "DESC"},  # 'nome', ['nome', 'estado']
-                                         filter={"regiao": "S"})
+                                         filter={
+                                             "regiao": "S"})  # [SGEO.EQ("regiao","S"), SGEO.LT("idade",10), SGEO.OR(SGEO.EQ("regiao","S"), SGEO.EQ("regiao", "NE"))]?
 
 print("metadata: ", fc2_metadata)
 print(fc2)
 
-fc_len = s.feature_collection_len("esensing:municipios_bra",
-                                  spatial_filter={'within': fc.loc[0, 'geometry'].wkt,
-                                                  'intersects': fc.loc[0, 'geometry'].wkt},
-                                  filter={"regiao": "S"})
-
-print('fc_len', fc_len)
+# fc_len = s.feature_collection_len("esensing:municipios_bra",
+#                                   spatial_filter={'within': fc.loc[0, 'geometry'].wkt,
+#                                                   'intersects': fc.loc[0, 'geometry'].wkt},
+#                                   filter={"regiao": "S"})
+#
+# print('fc_len', fc_len)

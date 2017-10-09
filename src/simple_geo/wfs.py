@@ -63,15 +63,11 @@ class wfs:
             self.debug = kwargs['debug']
 
     def _request(self, uri):
-        if self.debug:
-            print(uri)
         r = requests.get(uri)
 
         return r.content
 
     def _post(self, uri, data):
-        if self.debug:
-            print(uri)
         headers = {'Content-Type': 'application/xml'}
         r = requests.post(uri, data=data, headers=headers)
         return r.text

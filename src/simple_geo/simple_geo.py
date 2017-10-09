@@ -19,14 +19,14 @@
 #  e-sensing team at <esensing-team@dpi.inpe.br>.
 #
 
+import os
 import json
-from xml.dom import minidom
-import requests
 from wfs import wfs
 from wtss import wtss
 import pandas as pd
 from geopandas import GeoDataFrame
-from shapely.geometry import Point
+import hashlib
+import pickle
 
 try:
     # For Python 3.0 and later
@@ -60,7 +60,7 @@ class simple_geo:
             debug (boolean, optional): enable debug messages
         """
 
-        invalid_parameters = set(kwargs) - set(["debug", "wfs", "wtss"]);
+        invalid_parameters = set(kwargs) - {"debug", "cache", "wfs", "wtss"}
         if invalid_parameters:
             raise AttributeError('invalid parameter(s): {}'.format(invalid_parameters))
 
@@ -69,6 +69,13 @@ class simple_geo:
             if not type(kwargs['debug']) is bool:
                 raise AttributeError('debug must be a boolean')
             self.debug = kwargs['debug']
+
+        self.cache = False
+        self.cache_dir = "./.sgeo/cache"
+        if 'cache' in kwargs:
+            if not type(kwargs['cache']) is bool:
+                raise AttributeError('cache must be a boolean')
+            self.cache = kwargs['cache']
 
         if ('wfs' in kwargs) and ('wtss' in kwargs):
             if type(kwargs['wfs'] is str):
@@ -98,12 +105,19 @@ class simple_geo:
     def feature_collection(self, ft_name, **kwargs):
         """ Call wfs feature_collection and format the result to a pandas DataFrame
         """
-        global cache
+
         cv_list = None
+        fc = None
         if 'ts' in kwargs:
             cv_list = kwargs['ts']
             del kwargs['ts']
-        fc = self.wfs.feature_collection(ft_name, **kwargs)
+
+        if self.cache:
+            fc = self._get_cache(self.wfs_server, ft_name, kwargs)
+        if fc is None:
+            fc = self.wfs.feature_collection(ft_name, **kwargs)
+            self._set_cache(self.wfs_server, ft_name, kwargs, fc)
+
         metadata = {'total': fc['total'], 'total_features': fc['total_features']}
         if len(fc['features']) == 0:
             return pd.DataFrame(), metadata
@@ -123,10 +137,10 @@ class simple_geo:
                     geo_data[name] = geo_data[name].astype(object)
                 s_date = None
                 if 'start_date' in cv:
-                    s_date = cv['start_date'];
+                    s_date = cv['start_date']
                 e_date = None
                 if 'end_date' in cv:
-                    e_date = cv['end_date'];
+                    e_date = cv['end_date']
                 for idx, row in geo_data.iterrows():
                     ts, ts_metadata = self.time_series(cv['coverage'],
                                                        cv['attributes'],
@@ -169,3 +183,42 @@ class simple_geo:
         metadata = {'total': len(cv.timeline)}
 
         return data, metadata
+
+    def _get_cache(self, resource_type, resource_name, kwargs):
+
+        hash_params = simple_geo._get_cache_hash(resource_type, resource_name, kwargs)
+        file_path = "{}/{}..pkl".format(self.cache_dir, hash_params)
+        if os.path.isfile(file_path):
+            if os.path.getsize(file_path) > 0:
+                with open(file_path, 'rb') as handle:
+                    if self.debug:
+                        print("Cache found !")
+                    content = pickle.load(handle)
+                    return content
+        if self.debug:
+            print("Cache not found !")
+        return None
+
+    def _set_cache(self, resource_type, resource_name, kwargs, content):
+
+        hash_params = simple_geo._get_cache_hash(resource_type, resource_name, kwargs)
+        if not os.path.exists(self.cache_dir):
+            os.makedirs(self.cache_dir)
+        file_path = "{}/{}.pkl".format(self.cache_dir, hash_params)
+        with open(file_path, 'wb') as handle:
+            pickle.dump(content, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+    @staticmethod
+    def _get_cache_hash(resource_type, resource_name, kwargs):
+        params = "{}.{}.{}".format(resource_type, resource_name, json.dumps(kwargs))
+        return hashlib.sha256(params).hexdigest()
+
+    def clear_cache(self):
+        if self.debug:
+            print("Cleaning cache!")
+        if os.path.exists(self.cache_dir):
+            for root, dirs, files in os.walk(self.cache_dir, topdown=False):
+                for name in files:
+                    os.remove(os.path.join(root, name))
+                for name in dirs:
+                    os.rmdir(os.path.join(root, name))
